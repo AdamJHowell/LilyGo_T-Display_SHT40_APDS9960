@@ -1,0 +1,4 @@
+privateInfo.h
+cmake-build-*/
+.idea/
+.pio
