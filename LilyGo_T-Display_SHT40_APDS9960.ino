@@ -1,8 +1,11 @@
 /**
  * @brief This program will read the temperature and humidity from a SHT40 sensor, and light levels from an APDS9960 lux sensor.
  * Values will be read every 15 seconds (configurable), and the current reading will be averaged with the previous two.
+ * The devkit is from Lilygo:
+ * The STEMMA-QT port is connected to GPIO 43 and 44.
  * The temperature and humidity sensor is from Adafruit: https://www.adafruit.com/products/4885
  * The light sensor is also from Adafruit: https://www.adafruit.com/product/3595
+ * ToDo: Add voltage detection using GPIO4
  */
 
 #include "LilyGo_T-Display_SHT40_APDS9960.h"
@@ -27,7 +30,7 @@ void setup()
 #endif
 
 	Serial.println( "Adafruit SHT4x test" );
-	if( !sht4.begin())
+	if( !sht40.begin())
 	{
 		Serial.println( "Couldn't find SHT4x" );
 		while( 1 )
@@ -35,11 +38,11 @@ void setup()
 	}
 	Serial.println( "Found SHT4x sensor" );
 	Serial.print( "Serial number 0x" );
-	Serial.println( sht4.readSerial(), HEX );
+	Serial.println( sht40.readSerial(), HEX );
 
 	// You can have 3 different precisions, higher precision takes longer
-	sht4.setPrecision( SHT4X_HIGH_PRECISION );
-	switch( sht4.getPrecision())
+	sht40.setPrecision( SHT4X_HIGH_PRECISION );
+	switch( sht40.getPrecision())
 	{
 		case SHT4X_HIGH_PRECISION:
 			Serial.println( "High precision" );
@@ -55,8 +58,8 @@ void setup()
 	// You can have 6 different heater settings
 	// higher heat and longer times uses more power
 	// and reads will take longer too!
-	sht4.setHeater( SHT4X_NO_HEATER );
-	switch( sht4.getHeater())
+	sht40.setHeater( SHT4X_NO_HEATER );
+	switch( sht40.getHeater())
 	{
 		case SHT4X_NO_HEATER:
 			Serial.println( "No heater" );
@@ -98,7 +101,7 @@ void readTelemetry()
 {
 	sensors_event_t humidity;
 	sensors_event_t temp;
-	sht4.getEvent( &humidity, &temp );// populate temp and humidity objects with fresh data
+	sht40.getEvent( &humidity, &temp );// populate temp and humidity objects with fresh data
 
 	tempArray[0] = tempArray[1];
 	tempArray[1] = tempArray[2];

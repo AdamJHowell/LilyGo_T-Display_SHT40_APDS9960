@@ -148,10 +148,10 @@ int checkForSSID( const char *ssidName )
  */
 void wifiMultiConnect()
 {
-	digitalWrite( MCU_LED, LOW );
+	digitalWrite( BACKLIGHT, LOW );
 
 	Serial.println( "\nEntering wifiMultiConnect()" );
-	for( size_t networkArrayIndex = 0; networkArrayIndex < ELEMENT_COUNT; networkArrayIndex++ )
+	for( size_t networkArrayIndex = 0; networkArrayIndex < 5; networkArrayIndex++ )
 	{
 		// Get the details for this connection attempt.
 		const char *wifiSsid = wifiSsidArray[networkArrayIndex];
@@ -199,7 +199,7 @@ void wifiMultiConnect()
 				Serial.println( "\nWiFi connection established!" );
 				snprintf( ipAddress, 16, "%d.%d.%d.%d", WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2], WiFi.localIP()[3] );
 				Serial.printf( "IP address: %s\n", ipAddress );
-				digitalWrite( MCU_LED, HIGH );
+				digitalWrite( BACKLIGHT, HIGH );
 			}
 			else
 			{
@@ -231,7 +231,7 @@ int mqttMultiConnect( int maxAttempts )
 	// Connect the first time.  Avoid subtraction overflow.  Connect every interval.
 	if( lastMqttConnectionTime == 0 || ( ( time > mqttReconnectCooldown ) && ( time - mqttReconnectCooldown ) > lastMqttConnectionTime ) )
 	{
-		digitalWrite( MCU_LED, LOW );
+		digitalWrite( BACKLIGHT, LOW );
 		Serial.println( "\nFunction mqttMultiConnect() has initiated." );
 		if( WiFi.status() != WL_CONNECTED )
 			wifiMultiConnect();
@@ -272,7 +272,7 @@ int mqttMultiConnect( int maxAttempts )
 				if( mqttClient.connect( clientId ) )
 				{
 					Serial.println( " connected." );
-					digitalWrite( MCU_LED, HIGH );
+					digitalWrite( BACKLIGHT, HIGH );
 					if( !mqttClient.setBufferSize( JSON_DOC_SIZE ) )
 					{
 						Serial.printf( "Unable to create a buffer %lu bytes long!\n", JSON_DOC_SIZE );
@@ -334,7 +334,7 @@ void publishStats()
 		// Create a JSON Document on the stack.
 		StaticJsonDocument<JSON_DOC_SIZE> statsJsonDoc;
 		// Add data: SKETCH_NAME, macAddress, ipAddress, rssi, publishCount
-		statsJsonDoc["sketch"] = SKETCH_NAME;
+		statsJsonDoc["sketch"] = __FILE__;
 		statsJsonDoc["mac"] = macAddress;
 		statsJsonDoc["ip"] = ipAddress;
 		statsJsonDoc["rssi"] = rssi;
@@ -371,7 +371,7 @@ void publishTelemetry()
 		// Create a JSON Document on the stack.
 		StaticJsonDocument<JSON_DOC_SIZE> statsJsonDoc;
 		// Add data: SKETCH_NAME, macAddress, ipAddress, rssi, publishCount
-		statsJsonDoc["sketch"] = SKETCH_NAME;
+		statsJsonDoc["sketch"] = __FILE__;
 		statsJsonDoc["mac"] = macAddress;
 		statsJsonDoc["ip"] = ipAddress;
 		statsJsonDoc["rssi"] = rssi;

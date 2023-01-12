@@ -14,6 +14,7 @@ add_executable( LilyGo_T_Display_SHT40_APDS9960
 		./LilyGo_T-Display_SHT40_APDS9960.ino
 		./LilyGo_T-Display_SHT40_APDS9960.h
 		./NetworkFunctions.ino
+		./privateInfo.h
 		C:/Code/Arduino/libraries/Adafruit_SHT4x_Library/Adafruit_SHT4x.h
 		C:/Code/Arduino/libraries/Adafruit_APDS9960_Library/Adafruit_APDS9960.h
 		C:/Code/Arduino/libraries/Adafruit_Unified_Sensor/Adafruit_Sensor.h )
