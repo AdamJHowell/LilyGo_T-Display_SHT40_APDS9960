@@ -29,7 +29,19 @@ void setup()
 #endif
 
 	setupSht40();
+	setupAPDS();
 
+	wifiConnect();
+	configureOTA();
+
+	Serial.println( "Setup has completed." );
+} // End of setup() function.
+
+/**
+ * @brief setupAPDS() will initialize the SHT30 temperature and humidity sensor.
+ */
+void setupAPDS()
+{
 	if( !apds.begin() )
 	{
 		Serial.println( "\n\n-----------------------------------------------" );
@@ -43,12 +55,7 @@ void setup()
 		// Enable color sensing mode
 		apds.enableColor( true );
 	}
-
-	wifiConnect();
-	configureOTA();
-
-	Serial.println( "Setup has completed." );
-} // End of setup() function.
+} // End of setupAPDS() function.
 
 /**
  * @brief setupSht40() will initialize the SHT30 temperature and humidity sensor.
@@ -123,51 +130,83 @@ void readTelemetry()
 	sensors_event_t temp;
 	sht40.getEvent( &humidity, &temp ); // populate temp and humidity objects with fresh data
 
-	tempArray[0] = tempArray[1];
-	tempArray[1] = tempArray[2];
-	tempArray[2] = temp.temperature;
+	tempArray[2] = tempArray[1];
+	tempArray[1] = tempArray[0];
+	tempArray[0] = temp.temperature;
 
-	humidityArray[0] = humidityArray[1];
-	humidityArray[1] = humidityArray[2];
-	humidityArray[2] = humidity.relative_humidity;
+	humidityArray[2] = humidityArray[1];
+	humidityArray[1] = humidityArray[0];
+	humidityArray[0] = humidity.relative_humidity;
+
+	readColors();
 } // End of readTelemetry() function.
 
 void printTelemetry()
 {
-	Serial.printf( "Current temp: %.3f degrees C\n", tempArray[2] );
+	Serial.println();
+	printCount++;
+	Serial.printf( "Print count %lu\n", printCount );
+	Serial.printf( "MAC address: %s\n", macAddress );
+	int wifiStatusCode = WiFi.status();
+	char buffer[29];
+	lookupWifiCode( wifiStatusCode, buffer );
+	Serial.printf( "wifiConnectCount: %lu\n", wifiConnectCount );
+	Serial.printf( "wifiCoolDownInterval: %lu\n", wifiCoolDownInterval );
+	Serial.printf( "Wi-Fi status text: %s\n", buffer );
+	Serial.printf( "Wi-Fi status code: %d\n", wifiStatusCode );
+	if( wifiStatusCode == 3 )
+	{
+		Serial.printf( "IP address: %s\n", ipAddress );
+		Serial.printf( "RSSI: %ld\n", rssi );
+	}
+	Serial.println();
+
+	Serial.printf( "mqttConnectCount: %lu\n", mqttConnectCount );
+	Serial.printf( "mqttCoolDownInterval: %lu\n", mqttCoolDownInterval );
+	Serial.printf( "Broker: %s:%d\n", mqttBroker, mqttPort );
+	int mqttStateCode = mqttClient.state();
+	lookupMQTTCode( mqttStateCode, buffer );
+	Serial.printf( "MQTT state: %s\n", buffer );
+	Serial.printf( "Publish count %lu\n", publishCount );
+	Serial.println();
+
+	Serial.printf( "Current temp: %.3f degrees C\n", tempArray[0] );
 	float tempC = ( tempArray[0] + tempArray[1] + tempArray[2] ) / 3.0;
 	Serial.printf( "Average: %.3f degrees C\n", tempC );
 	float tempF = ( tempC * 1.8 ) + 32;
 	Serial.printf( "Average: %.3f degrees F\n", tempF );
 
-	Serial.printf( "Current humidity: %.3f %% rH\n", humidityArray[2] );
+	Serial.printf( "Current humidity: %.3f %% rH\n", humidityArray[0] );
 	float humidity = ( humidityArray[0] + humidityArray[1] + humidityArray[2] ) / 3.0;
 	Serial.printf( "Average: %.3f %% rH\n", humidity );
+
+	Serial.println( "APDS9960 values:" );
+	Serial.print( "  Red: " );
+	Serial.println( redValue );
+
+	Serial.print( "  Green: " );
+	Serial.println( greenValue );
+
+	Serial.print( "  Blue: " );
+	Serial.println( blueValue );
+
+	Serial.print( "  Clear: " );
+	Serial.println( clearValue );
+
+	Serial.println();
 } // End of printTelemetry() function.
 
+/**
+ * @brief readColors() will poll the APDS9960 for RGBW values.
+ */
 void readColors()
 {
-	// Variables to store the color data.
-	uint16_t r, g, b, c;
-
 	// Wait for color data to be ready.
 	while( !apds.colorDataReady() )
 		delay( 5 );
 
 	// Get color data and print the different channels.
-	apds.getColorData( &r, &g, &b, &c );
-	Serial.print( "red: " );
-	Serial.print( r );
-
-	Serial.print( " green: " );
-	Serial.print( g );
-
-	Serial.print( " blue: " );
-	Serial.print( b );
-
-	Serial.print( " clear: " );
-	Serial.println( c );
-	Serial.println();
+	apds.getColorData( &redValue, &greenValue, &blueValue, &clearValue );
 } // End of readColors() function.
 
 /**
@@ -195,11 +234,10 @@ void loop()
 
 	unsigned long currentTime = millis();
 	// Poll the first time.  Avoid subtraction overflow.  Poll every interval.
-	if( lastTelemetryReadTime == 0 || ( ( currentTime > telemetryPollInterval ) && ( currentTime - telemetryPollInterval ) > lastTelemetryReadTime ) )
+	if( lastTelemetryPollTime == 0 || ( ( currentTime > telemetryPollInterval ) && ( currentTime - telemetryPollInterval ) > lastTelemetryPollTime ) )
 	{
 		readTelemetry();
-		readColors();
-		lastTelemetryReadTime = millis();
+		lastTelemetryPollTime = millis();
 	}
 
 	currentTime = millis();
@@ -207,6 +245,13 @@ void loop()
 	{
 		printTelemetry();
 		lastTelemetryPrintTime = millis();
+	}
+
+	currentTime = millis();
+	if( lastTelemetryPublishTime == 0 || ( ( currentTime > telemetryPublishInterval ) && ( currentTime - telemetryPublishInterval ) > lastTelemetryPublishTime ) )
+	{
+		publishTelemetry();
+		lastTelemetryPublishTime = millis();
 	}
 
 	currentTime = millis();
