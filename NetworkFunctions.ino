@@ -14,12 +14,11 @@
  */
 void mqttCallback( char *topic, byte *payload, unsigned int length )
 {
+	callbackCount++;
 	Serial.printf( "\nMessage arrived on Topic: '%s'\n", topic );
 
 	StaticJsonDocument<JSON_DOC_SIZE> callbackJsonDoc;
-	Serial.println( "JSON document (static) was created." );
 	deserializeJson( callbackJsonDoc, payload, length );
-	Serial.println( "JSON document was deserialized." );
 
 	const char *command = callbackJsonDoc["command"];
 	Serial.printf( "Processing command '%s'.\n", command );
@@ -46,39 +45,6 @@ void mqttCallback( char *topic, byte *payload, unsigned int length )
 	else
 		Serial.printf( "Unknown command '%s'\n", command );
 } // End of the mqttCallback() function.
-
-/**
- * onReceiveCallback() handles MQTT subscriptions.
- * When a message comes in on a topic we have subscribed to, this function is executed.
- */
-void onReceiveCallback( char *topic, byte *payload, unsigned int length )
-{
-	Serial.printf( "New message on topic '%s'\n", topic );
-	// ToDo: Determine which commands this device should respond to.
-
-	if( length > 0 )
-	{
-		callbackCount++;
-		// Create a document named callbackJsonDoc to hold the callback payload.
-		StaticJsonDocument<JSON_DOC_SIZE> callbackJsonDoc;
-		// Deserialize payload into callbackJsonDoc.
-		deserializeJson( callbackJsonDoc, payload, length );
-
-		if( callbackJsonDoc.containsKey( "command" ) )
-		{
-			// Store the command value.
-			const char *command = callbackJsonDoc["command"];
-
-			if( strcmp( command, "publishStats" ) == 0 )
-			{
-				readTelemetry();
-				publishStats();
-			}
-			else
-				Serial.printf( "Unknown command: '%s'\n", command );
-		}
-	}
-} // End of onReceiveCallback() function.
 
 /**
  * @brief configureOTA() will configure and initiate Over The Air (OTA) updates for this device.
@@ -243,7 +209,7 @@ void mqttConnect()
 	{
 		mqttConnectCount++;
 		digitalWrite( BACKLIGHT, 0 );
-		Serial.printf( "Connecting to broker at %s:%d...\n", mqttBroker, mqttPort );
+		Serial.printf( "Connecting to broker at %s:%d using client ID '%s'...\n", mqttBroker, mqttPort, macAddress );
 		mqttClient.setServer( mqttBroker, mqttPort );
 		mqttClient.setCallback( mqttCallback );
 
@@ -251,7 +217,7 @@ void mqttConnect()
 		if( mqttClient.connect( macAddress ) )
 		{
 			Serial.println( "Connected to MQTT Broker." );
-			mqttClient.subscribe( commandTopic );
+			mqttClient.subscribe( MQTT_COMMAND_TOPIC );
 			digitalWrite( BACKLIGHT, 1 );
 		}
 		else
@@ -273,80 +239,107 @@ void mqttConnect()
 } // End of the mqttConnect() function.
 
 /**
- * @brief publishStats() is called by the callback when the "publishStats" command is received.
- */
-void publishStats()
-{
-	if( mqttClient.connected() )
-	{
-		char mqttStatsString[JSON_DOC_SIZE];
-		// Create a JSON Document on the stack.
-		StaticJsonDocument<JSON_DOC_SIZE> statsJsonDoc;
-		// Add data: SKETCH_NAME, macAddress, ipAddress, rssi, publishCount
-		statsJsonDoc["sketch"] = __FILE__;
-		statsJsonDoc["mac"] = macAddress;
-		statsJsonDoc["ip"] = ipAddress;
-		statsJsonDoc["rssi"] = rssi;
-		statsJsonDoc["publishCount"] = publishCount;
-
-		// Serialize statsJsonDoc into mqttStatsString, with indentation and line breaks.
-		serializeJsonPretty( statsJsonDoc, mqttStatsString );
-
-		Serial.printf( "Publishing stats to the '%s' topic.\n", MQTT_STATS_TOPIC );
-
-		if( mqttClient.publish( MQTT_STATS_TOPIC, mqttStatsString ) )
-		{
-			Serial.printf( "Published to this broker: '%s:%d' on this topic '%s'.\n", mqttBroker, mqttPort, MQTT_STATS_TOPIC );
-			Serial.println( mqttStatsString );
-		}
-		else
-			Serial.print( "\n\nPublish failed!\n\n" );
-	}
-} // End of publishStats() function.
-
-/**
  * @brief publishTelemetry() will publish basic device information to the MQTT broker.
  */
 void publishTelemetry()
 {
-	float averageTempC = ( tempArray[0] + tempArray[1] + tempArray[2] ) / 3.0;
-	float tempF = ( averageTempC * 1.8 ) + 32;
+	float averageTempC = averageArray( sht40TempCArray );
+	float tempF = cToF( averageTempC );
 
-	float averageHumidity = ( humidityArray[0] + humidityArray[1] + humidityArray[2] ) / 3.0;
-	if( mqttClient.connected() )
+	float averageHumidity = averageArray( sht40HumidityArray );
+	char mqttStatsString[JSON_DOC_SIZE];
+	// Create a JSON Document on the stack.
+	StaticJsonDocument<JSON_DOC_SIZE> statsJsonDoc;
+	// Add data: SKETCH_NAME, macAddress, ipAddress, rssi, publishCount
+	statsJsonDoc["sketch"] = __FILE__;
+	statsJsonDoc["mac"] = macAddress;
+	statsJsonDoc["ip"] = ipAddress;
+	statsJsonDoc["rssi"] = rssi;
+	statsJsonDoc["publishCount"] = publishCount;
+	statsJsonDoc["tempC"] = averageTempC;
+	statsJsonDoc["tempF"] = tempF;
+	statsJsonDoc["latestTempC"] = sht40TempCArray[0];
+	statsJsonDoc["humidity"] = averageHumidity;
+	statsJsonDoc["latestHumidity"] = sht40HumidityArray[0];
+
+	// Serialize statsJsonDoc into mqttStatsString, with indentation and line breaks.
+	serializeJsonPretty( statsJsonDoc, mqttStatsString );
+
+	Serial.printf( "Publishing stats to the '%s' topic.\n", MQTT_STATS_TOPIC );
+
+	if( mqttClient.publish( MQTT_STATS_TOPIC, mqttStatsString ) )
 	{
-		char mqttStatsString[JSON_DOC_SIZE];
-		// Create a JSON Document on the stack.
-		StaticJsonDocument<JSON_DOC_SIZE> statsJsonDoc;
-		// Add data: SKETCH_NAME, macAddress, ipAddress, rssi, publishCount
-		statsJsonDoc["sketch"] = __FILE__;
-		statsJsonDoc["mac"] = macAddress;
-		statsJsonDoc["ip"] = ipAddress;
-		statsJsonDoc["rssi"] = rssi;
-		statsJsonDoc["publishCount"] = publishCount;
-		statsJsonDoc["averageTempC"] = averageTempC;
-		statsJsonDoc["tempF"] = tempF;
-		statsJsonDoc["latestTempC"] = tempArray[2];
-		statsJsonDoc["averageHumidity"] = averageHumidity;
-		statsJsonDoc["latestHumidity"] = humidityArray[2];
-
-		// Serialize statsJsonDoc into mqttStatsString, with indentation and line breaks.
-		serializeJsonPretty( statsJsonDoc, mqttStatsString );
-
-		Serial.printf( "Publishing stats to the '%s' topic.\n", MQTT_STATS_TOPIC );
-
-		if( mqttClient.publish( MQTT_STATS_TOPIC, mqttStatsString ) )
-		{
-			Serial.printf( "Published to broker '%s:%d' on topic '%s'.\n", mqttBroker, mqttPort, MQTT_STATS_TOPIC );
-			Serial.println( mqttStatsString );
-		}
-		else
-		{
-			Serial.println( "\n---------------" );
-			Serial.println( "Publish failed!" );
-			Serial.println( "---------------\n" );
-		}
+		Serial.printf( "Published to broker '%s:%d' on topic '%s'.\n", mqttBroker, mqttPort, MQTT_STATS_TOPIC );
+		Serial.println( mqttStatsString );
 	}
+	else
+	{
+		Serial.println( "\n---------------" );
+		Serial.println( "Publish failed!" );
+		Serial.println( "---------------\n" );
+	}
+
+	publishCount++;
+	char topicBuffer[256] = "";
+	char valueBuffer[25] = "";
+
+	snprintf( valueBuffer, 25, "%f", averageArray( sht40TempCArray ) );
+	if( mqttClient.publish( topicBuffer, valueBuffer ) )
+		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, TEMP_C_TOPIC );
+	else
+		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, TEMP_C_TOPIC );
+
+	snprintf( valueBuffer, 25, "%f", cToF( averageArray( sht40TempCArray ) ) );
+	if( mqttClient.publish( topicBuffer, valueBuffer ) )
+		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, TEMP_F_TOPIC );
+	else
+		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, TEMP_F_TOPIC );
+
+	snprintf( valueBuffer, 25, "%f", averageArray( sht40HumidityArray ) );
+	if( mqttClient.publish( topicBuffer, valueBuffer ) )
+		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, HUMIDITY_TOPIC );
+	else
+		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, HUMIDITY_TOPIC );
+
+	snprintf( valueBuffer, 25, "%ld", rssi );
+	if( mqttClient.publish( topicBuffer, valueBuffer ) )
+		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, RSSI_TOPIC );
+	else
+		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, RSSI_TOPIC );
+
+	snprintf( valueBuffer, 25, "%s", macAddress );
+	if( mqttClient.publish( topicBuffer, valueBuffer ) )
+		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, MAC_TOPIC );
+	else
+		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, MAC_TOPIC );
+
+	snprintf( valueBuffer, 25, "%s", ipAddress );
+	if( mqttClient.publish( topicBuffer, valueBuffer ) )
+		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, IP_TOPIC );
+	else
+		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, IP_TOPIC );
+
+	//	snprintf( valueBuffer, 25, "%u", wifiConnectCount );
+	//	Serial.printf( "Published '%s' to '%s'\n", valueBuffer, wifiCountTopic );
+	//	mqttClient.publish( topicBuffer, valueBuffer );
+	//
+	//	snprintf( valueBuffer, 25, "%lu", wifiCoolDown );
+	//	Serial.printf( "Published '%s' to '%s'\n", valueBuffer, wifiCoolDownTopic );
+	//	mqttClient.publish( topicBuffer, valueBuffer );
+	//
+	//	snprintf( valueBuffer, 25, "%u", mqttConnectCount );
+	//	Serial.printf( "Published '%s' to '%s'\n", valueBuffer, mqttCountTopic );
+	//	mqttClient.publish( topicBuffer, valueBuffer );
+	//
+	//	snprintf( valueBuffer, 25, "%lu", mqttCoolDown );
+	//	Serial.printf( "Published '%s' to '%s'\n", valueBuffer, mqttCoolDownTopic );
+	//	mqttClient.publish( topicBuffer, valueBuffer );
+
+	snprintf( valueBuffer, 25, "%lu", publishCount );
+	if( mqttClient.publish( topicBuffer, valueBuffer ) )
+		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, PUBLISH_COUNT_TOPIC );
+	else
+		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, PUBLISH_COUNT_TOPIC );
 } // End of publishTelemetry() function.
 
 /**

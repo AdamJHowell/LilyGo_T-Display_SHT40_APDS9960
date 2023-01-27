@@ -6,6 +6,8 @@
  * The temperature and humidity sensor is from Adafruit: https://www.adafruit.com/products/4885
  * The light sensor is also from Adafruit: https://www.adafruit.com/product/3595
  * ToDo: Add voltage detection using GPIO4
+ * ToDo: Use the light sensor color values to set the TFT background color.
+ * ToDo: Fix publishing!
  */
 
 #include "LilyGo_T-Display_SHT40_APDS9960.h"
@@ -17,6 +19,9 @@ void setup()
 
 	if( !Serial )
 		delay( 1000 );
+
+	// Set the MAC address variable to its value.
+	snprintf( macAddress, 18, "%s", WiFi.macAddress().c_str() );
 
 	pinMode( BACKLIGHT, OUTPUT );
 
@@ -122,81 +127,6 @@ void setupSht40()
 } // End of the setupSht40() function.
 
 /**
- * @brief readTelemetry() will manipulate the settingArray[] like a FIFO queue, by popping the head value off, and adding a new value to the tail.
- */
-void readTelemetry()
-{
-	sensors_event_t humidity;
-	sensors_event_t temp;
-	sht40.getEvent( &humidity, &temp ); // populate temp and humidity objects with fresh data
-
-	tempArray[2] = tempArray[1];
-	tempArray[1] = tempArray[0];
-	tempArray[0] = temp.temperature;
-
-	humidityArray[2] = humidityArray[1];
-	humidityArray[1] = humidityArray[0];
-	humidityArray[0] = humidity.relative_humidity;
-
-	readColors();
-} // End of readTelemetry() function.
-
-void printTelemetry()
-{
-	Serial.println();
-	printCount++;
-	Serial.printf( "Print count %lu\n", printCount );
-	Serial.printf( "MAC address: %s\n", macAddress );
-	int wifiStatusCode = WiFi.status();
-	char buffer[29];
-	lookupWifiCode( wifiStatusCode, buffer );
-	Serial.printf( "wifiConnectCount: %lu\n", wifiConnectCount );
-	Serial.printf( "wifiCoolDownInterval: %lu\n", wifiCoolDownInterval );
-	Serial.printf( "Wi-Fi status text: %s\n", buffer );
-	Serial.printf( "Wi-Fi status code: %d\n", wifiStatusCode );
-	if( wifiStatusCode == 3 )
-	{
-		Serial.printf( "IP address: %s\n", ipAddress );
-		Serial.printf( "RSSI: %ld\n", rssi );
-	}
-	Serial.println();
-
-	Serial.printf( "mqttConnectCount: %lu\n", mqttConnectCount );
-	Serial.printf( "mqttCoolDownInterval: %lu\n", mqttCoolDownInterval );
-	Serial.printf( "Broker: %s:%d\n", mqttBroker, mqttPort );
-	int mqttStateCode = mqttClient.state();
-	lookupMQTTCode( mqttStateCode, buffer );
-	Serial.printf( "MQTT state: %s\n", buffer );
-	Serial.printf( "Publish count %lu\n", publishCount );
-	Serial.println();
-
-	Serial.printf( "Current temp: %.3f degrees C\n", tempArray[0] );
-	float tempC = ( tempArray[0] + tempArray[1] + tempArray[2] ) / 3.0;
-	Serial.printf( "Average: %.3f degrees C\n", tempC );
-	float tempF = ( tempC * 1.8 ) + 32;
-	Serial.printf( "Average: %.3f degrees F\n", tempF );
-
-	Serial.printf( "Current humidity: %.3f %% rH\n", humidityArray[0] );
-	float humidity = ( humidityArray[0] + humidityArray[1] + humidityArray[2] ) / 3.0;
-	Serial.printf( "Average: %.3f %% rH\n", humidity );
-
-	Serial.println( "APDS9960 values:" );
-	Serial.print( "  Red: " );
-	Serial.println( redValue );
-
-	Serial.print( "  Green: " );
-	Serial.println( greenValue );
-
-	Serial.print( "  Blue: " );
-	Serial.println( blueValue );
-
-	Serial.print( "  Clear: " );
-	Serial.println( clearValue );
-
-	Serial.println();
-} // End of printTelemetry() function.
-
-/**
  * @brief readColors() will poll the APDS9960 for RGBW values.
  */
 void readColors()
@@ -208,6 +138,103 @@ void readColors()
 	// Get color data and print the different channels.
 	apds.getColorData( &redValue, &greenValue, &blueValue, &clearValue );
 } // End of readColors() function.
+
+/**
+ * @brief averageArray() will return the average of values in the passed array.
+ */
+float averageArray( float valueArray[] )
+{
+	const unsigned int arraySize = 3;
+	float tempValue = 0;
+	for( int i = 0; i < arraySize; ++i )
+	{
+		tempValue += valueArray[i];
+	}
+	return tempValue / arraySize;
+} // End of the averageArray() function.
+
+/**
+ * @brief cToF() will convert Celsius to Fahrenheit.
+ */
+float cToF( float value )
+{
+	return value * 1.8 + 32;
+} // End of the cToF() function.
+
+/**
+ * @brief readTelemetry() will manipulate the settingArray[] like a FIFO queue, by popping the head value off, and adding a new value to the tail.
+ */
+void readTelemetry()
+{
+	rssi = WiFi.RSSI();
+	sensors_event_t humidity;
+	sensors_event_t temp;
+	sht40.getEvent( &humidity, &temp ); // populate temp and humidity objects with fresh data
+
+	sht40TempCArray[2] = sht40TempCArray[1];
+	sht40TempCArray[1] = sht40TempCArray[0];
+	sht40TempCArray[0] = temp.temperature;
+
+	sht40HumidityArray[2] = sht40HumidityArray[1];
+	sht40HumidityArray[1] = sht40HumidityArray[0];
+	sht40HumidityArray[0] = humidity.relative_humidity;
+
+	readColors();
+
+	voltage = ( analogRead( PIN_BAT_VOLT ) * 2 * 3.3 * 1000 ) / 4096;
+} // End of readTelemetry() function.
+
+void printTelemetry()
+{
+	Serial.println();
+	printCount++;
+	Serial.printf( "Print count: %lu\n", printCount );
+	Serial.printf( "Voltage: %d\n", voltage );
+	Serial.println( "Network stats:" );
+	Serial.printf( "  MAC address: %s\n", macAddress );
+	int wifiStatusCode = WiFi.status();
+	char buffer[29];
+	lookupWifiCode( wifiStatusCode, buffer );
+	Serial.printf( "  wifiConnectCount: %lu\n", wifiConnectCount );
+	Serial.printf( "  wifiCoolDownInterval: %lu\n", wifiCoolDownInterval );
+	Serial.printf( "  Wi-Fi status text: %s\n", buffer );
+	Serial.printf( "  Wi-Fi status code: %d\n", wifiStatusCode );
+	if( wifiStatusCode == 3 )
+	{
+		Serial.printf( "  IP address: %s\n", ipAddress );
+		Serial.printf( "  RSSI: %ld\n", rssi );
+	}
+	Serial.println();
+
+	Serial.println( "MQTT stats:" );
+	Serial.printf( "  mqttConnectCount: %lu\n", mqttConnectCount );
+	Serial.printf( "  mqttCoolDownInterval: %lu\n", mqttCoolDownInterval );
+	Serial.printf( "  Broker: %s:%d\n", mqttBroker, mqttPort );
+	lookupMQTTCode( mqttClient.state(), buffer );
+	Serial.printf( "  MQTT state: %s\n", buffer );
+	Serial.printf( "  Publish count: %lu\n", publishCount );
+	Serial.printf( "  Callback count: %lu\n", callbackCount );
+	Serial.println();
+
+	Serial.println( "Environmental stats:" );
+	Serial.printf( "  Current temp: %.3f C\n", sht40TempCArray[0] );
+	Serial.printf( "  Average: %.3f C\n", averageArray( sht40TempCArray ) );
+	Serial.printf( "  Average: %.3f F\n", cToF( averageArray( sht40TempCArray ) ) );
+	Serial.printf( "  Current humidity: %.3f %% rH\n", sht40HumidityArray[0] );
+	Serial.printf( "  Average: %.3f %% rH\n", averageArray( sht40HumidityArray ) );
+
+	Serial.println( "APDS9960 values:" );
+	Serial.print( "  Red: " );
+	Serial.println( redValue );
+	Serial.print( "  Green: " );
+	Serial.println( greenValue );
+	Serial.print( "  Blue: " );
+	Serial.println( blueValue );
+	Serial.print( "  Clear: " );
+	Serial.println( clearValue );
+
+	Serial.println();
+} // End of printTelemetry() function.
 
 /**
  * @brief toggleLED() will change the state of the LED.
@@ -248,7 +275,7 @@ void loop()
 	}
 
 	currentTime = millis();
-	if( lastTelemetryPublishTime == 0 || ( ( currentTime > telemetryPublishInterval ) && ( currentTime - telemetryPublishInterval ) > lastTelemetryPublishTime ) )
+	if( mqttClient.connected() && ( lastTelemetryPublishTime == 0 || ( ( currentTime > telemetryPublishInterval ) && ( currentTime - telemetryPublishInterval ) > lastTelemetryPublishTime ) ) )
 	{
 		publishTelemetry();
 		lastTelemetryPublishTime = millis();
