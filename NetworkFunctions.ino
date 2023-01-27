@@ -6,6 +6,46 @@
  */
 #include "LilyGo_T-Display_SHT40_APDS9960.h"
 
+/**
+ * @brief mqttCallback() will process incoming messages on subscribed topics.
+ * { "command": "publishTelemetry" }
+ * { "command": "changeTelemetryInterval", "value": 10000 }
+ * ToDo: Add more commands for the board to react to.
+ */
+void mqttCallback( char *topic, byte *payload, unsigned int length )
+{
+	Serial.printf( "\nMessage arrived on Topic: '%s'\n", topic );
+
+	StaticJsonDocument<JSON_DOC_SIZE> callbackJsonDoc;
+	Serial.println( "JSON document (static) was created." );
+	deserializeJson( callbackJsonDoc, payload, length );
+	Serial.println( "JSON document was deserialized." );
+
+	const char *command = callbackJsonDoc["command"];
+	Serial.printf( "Processing command '%s'.\n", command );
+	if( strcmp( command, "publishTelemetry" ) == 0 )
+	{
+		Serial.println( "Reading and publishing sensor values." );
+		// Poll the sensor.
+		readTelemetry();
+		// Publish the sensor readings.
+		publishTelemetry();
+		Serial.println( "Readings have been published." );
+	}
+	else if( strcmp( command, "changeTelemetryInterval" ) == 0 )
+	{
+		unsigned long tempValue = callbackJsonDoc["value"];
+		// Only update the value if it is greater than 4 seconds.  This prevents a seconds vs. milliseconds confusion.
+		if( tempValue > 4000 )
+			publishInterval = tempValue;
+		Serial.printf( "MQTT publish interval has been updated to %u\n", publishInterval );
+		lastPublishTime = 0;
+	}
+	else if( strcmp( command, "publishStatus" ) == 0 )
+		Serial.println( "publishStatus is not yet implemented." );
+	else
+		Serial.printf( "Unknown command '%s'\n", command );
+} // End of the mqttCallback() function.
 
 /**
  * onReceiveCallback() handles MQTT subscriptions.
@@ -38,8 +78,7 @@ void onReceiveCallback( char *topic, byte *payload, unsigned int length )
 				Serial.printf( "Unknown command: '%s'\n", command );
 		}
 	}
-}  // End of onReceiveCallback() function.
-
+} // End of onReceiveCallback() function.
 
 /**
  * @brief configureOTA() will configure and initiate Over The Air (OTA) updates for this device.
@@ -55,7 +94,7 @@ void configureOTA()
 	// ArduinoOTA.setPort( 8266 );
 	// Authentication is disabled by default.
 	// ArduinoOTA.setPassword( ( const char * ) "admin" );
-#elif ESP32
+#else
 	// The ESP32 hostname defaults to esp32-[MAC].
 	// The ESP32 port defaults to 3232.
 	// ArduinoOTA.setPort( 3232 );
@@ -64,8 +103,6 @@ void configureOTA()
 	// Password can be set with it's md5 value as well.
 	// MD5( admin ) = 21232f297a57a5a743894a0e4a801fc3.
 	// ArduinoOTA.setPasswordHash( "21232f297a57a5a743894a0e4a801fc3" );
-#else
-	// ToDo: Verify how stock Arduino code is meant to handle the port, username, and password.
 #endif
 
 	// ArduinoOTA is a class-defined object.
@@ -73,7 +110,7 @@ void configureOTA()
 
 	Serial.printf( "Using hostname '%s'\n", HOST_NAME );
 
-	String type = "filesystem";  // SPIFFS
+	String type = "filesystem"; // SPIFFS
 	if( ArduinoOTA.getCommand() == U_FLASH )
 		type = "sketch";
 
@@ -114,8 +151,7 @@ void configureOTA()
 	ArduinoOTA.begin();
 
 	Serial.println( "OTA is configured and ready." );
-}  // End of the configureOTA() function.
-
+} // End of the configureOTA() function.
 
 /*
  * checkForSSID() is used by wifiMultiConnect() to avoid attempting to connect to SSIDs which are not in range.
@@ -140,8 +176,100 @@ int checkForSSID( const char *ssidName )
 	}
 	Serial.printf( "SSID '%s' was not found!\n", ssidName );
 	return 0;
-}  // End of checkForSSID() function.
+} // End of checkForSSID() function.
 
+/**
+ * @brief wifiConnect() will connect to a SSID.
+ */
+void wifiConnect()
+{
+	long time = millis();
+	if( lastWifiConnect == 0 || ( time > wifiCoolDown && ( time - wifiCoolDown ) > lastWifiConnect ) )
+	{
+		int ssidCount = checkForSSID( wifiSsid );
+		if( ssidCount == 0 )
+		{
+			Serial.printf( "SSID '%s' is not in range!\n", wifiSsid );
+			digitalWrite( BACKLIGHT, 0 ); // Turn the LED off to show that Wi-Fi has no chance of connecting.
+		}
+		else
+		{
+			wifiConnectCount++;
+			// Turn the LED off to show Wi-Fi is not connected.
+			digitalWrite( BACKLIGHT, 0 );
+
+			Serial.printf( "Attempting to connect to Wi-Fi SSID '%s'", wifiSsid );
+			WiFi.mode( WIFI_STA );
+			WiFi.config( INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE );
+			const char *hostName = macAddress;
+			WiFi.setHostname( hostName );
+			WiFi.begin( wifiSsid, wifiPassword );
+
+			unsigned long wifiConnectionStartTime = millis();
+
+			// Loop until connected, or until wifiConnectionTimeout.
+			while( WiFi.status() != WL_CONNECTED && ( millis() - wifiConnectionStartTime < wifiConnectionTimeout ) )
+			{
+				Serial.print( "." );
+				delay( 1000 );
+			}
+			Serial.println( "" );
+
+			if( WiFi.status() == WL_CONNECTED )
+			{
+				// Print that Wi-Fi has connected.
+				Serial.println( "\nWi-Fi connection established!" );
+				snprintf( ipAddress, 16, "%d.%d.%d.%d", WiFi.localIP()[0], WiFi.localIP()[1], WiFi.localIP()[2], WiFi.localIP()[3] );
+				// Turn the LED on to show that Wi-Fi is connected.
+				digitalWrite( BACKLIGHT, 1 );
+				return;
+			}
+			else
+				Serial.println( "Wi-Fi failed to connect in the timeout period.\n" );
+		}
+		lastWifiConnect = millis();
+	}
+} // End of the wifiConnect() function.
+
+/**
+ * @brief mqttConnect() will connect to the MQTT broker.
+ */
+void mqttConnect()
+{
+	long time = millis();
+	// Connect the first time.  Avoid subtraction overflow.  Connect after cool down.
+	if( lastBrokerConnect == 0 || ( time > mqttCoolDown && ( time - mqttCoolDown ) > lastBrokerConnect ) )
+	{
+		mqttConnectCount++;
+		digitalWrite( BACKLIGHT, 0 );
+		Serial.printf( "Connecting to broker at %s:%d...\n", mqttBroker, mqttPort );
+		mqttClient.setServer( mqttBroker, mqttPort );
+		mqttClient.setCallback( mqttCallback );
+
+		// Connect to the broker, using the MAC address for a MQTT client ID.
+		if( mqttClient.connect( macAddress ) )
+		{
+			Serial.println( "Connected to MQTT Broker." );
+			mqttClient.subscribe( commandTopic );
+			digitalWrite( BACKLIGHT, 1 );
+		}
+		else
+		{
+			int mqttStateCode = mqttClient.state();
+			char buffer[29];
+			lookupMQTTCode( mqttStateCode, buffer );
+			Serial.printf( "MQTT state: %s\n", buffer );
+			Serial.printf( "MQTT state code: %d\n", mqttStateCode );
+
+			// This block increments the broker connection "cooldown" time by 10 seconds after every failed connection, and resets it once it is over 2 minutes.
+			if( mqttCoolDown > 120000 )
+				mqttCoolDown = 0;
+			mqttCoolDown += 10000;
+		}
+
+		lastBrokerConnect = millis();
+	}
+} // End of the mqttConnect() function.
 
 /*
  * wifiMultiConnect() will iterate through 'wifiSsidArray[]', attempting to connect with the password stored at the same index in 'wifiPassArray[]'.
@@ -215,8 +343,7 @@ void wifiMultiConnect()
 		}
 	}
 	Serial.println( "Exiting wifiMultiConnect()\n" );
-}  // End of wifiMultiConnect() function.
-
+} // End of wifiMultiConnect() function.
 
 /*
  * mqttMultiConnect() will:
@@ -320,8 +447,7 @@ int mqttMultiConnect( int maxAttempts )
 	}
 	lastMqttConnectionTime = millis();
 	return 1;
-}  // End of mqttMultiConnect() function.
-
+} // End of mqttMultiConnect() function.
 
 /**
  * @brief publishStats() is called by the callback when the "publishStats" command is received.
@@ -353,8 +479,7 @@ void publishStats()
 		else
 			Serial.print( "\n\nPublish failed!\n\n" );
 	}
-}  // End of publishStats() function.
-
+} // End of publishStats() function.
 
 /**
  * @brief publishTelemetry() will publish basic device information to the MQTT broker.
@@ -395,8 +520,7 @@ void publishTelemetry()
 		else
 			Serial.print( "\n\nPublish failed!\n\n" );
 	}
-}  // End of publishTelemetry() function.
-
+} // End of publishTelemetry() function.
 
 /**
  * @brief lookupWifiCode() will return the string for an integer code.
@@ -429,8 +553,7 @@ void lookupWifiCode( int code, char *buffer )
 		default:
 			snprintf( buffer, 26, "%s", "Unknown Wi-Fi status code" );
 	}
-}  // End of lookupWifiCode() function.
-
+} // End of lookupWifiCode() function.
 
 /**
  * @brief lookupMQTTCode() will return the string for an integer state code.
@@ -472,4 +595,4 @@ void lookupMQTTCode( int code, char *buffer )
 		default:
 			snprintf( buffer, 29, "%s", "Unknown MQTT state code" );
 	}
-}  // End of lookupMQTTCode() function.
+} // End of lookupMQTTCode() function.

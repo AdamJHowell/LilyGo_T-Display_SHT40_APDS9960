@@ -10,7 +10,6 @@
 
 #include "LilyGo_T-Display_SHT40_APDS9960.h"
 
-
 void setup()
 {
 	delay( 1000 );
@@ -26,73 +25,94 @@ void setup()
 	Wire.begin( sdaGPIO, sclGPIO );
 #else
 	// Use default I2C GPIOs.
-	 Wire.begin();
+	Wire.begin();
 #endif
 
-	Serial.println( "Adafruit SHT4x test" );
-	if( !sht40.begin())
-	{
-		Serial.println( "Couldn't find SHT4x" );
-		while( 1 )
-			delay( 1 );
-	}
-	Serial.println( "Found SHT4x sensor" );
-	Serial.print( "Serial number 0x" );
-	Serial.println( sht40.readSerial(), HEX );
+	setupSht40();
 
-	// You can have 3 different precisions, higher precision takes longer
-	sht40.setPrecision( SHT4X_HIGH_PRECISION );
-	switch( sht40.getPrecision())
+	if( !apds.begin() )
 	{
-		case SHT4X_HIGH_PRECISION:
-			Serial.println( "High precision" );
-			break;
-		case SHT4X_MED_PRECISION:
-			Serial.println( "Med precision" );
-			break;
-		case SHT4X_LOW_PRECISION:
-			Serial.println( "Low precision" );
-			break;
+		Serial.println( "\n\n-----------------------------------------------" );
+		Serial.println( "Failed to initialize the APDS9960 light sensor!" );
+		Serial.println( "Please check your wiring." );
+		Serial.println( "-----------------------------------------------\n\n" );
+	}
+	else
+	{
+		Serial.println( "APDS9960 initialized!" );
+		// Enable color sensing mode
+		apds.enableColor( true );
 	}
 
-	// You can have 6 different heater settings
-	// higher heat and longer times uses more power
-	// and reads will take longer too!
-	sht40.setHeater( SHT4X_NO_HEATER );
-	switch( sht40.getHeater())
-	{
-		case SHT4X_NO_HEATER:
-			Serial.println( "No heater" );
-			break;
-		case SHT4X_HIGH_HEATER_1S:
-			Serial.println( "High heat for 1 second" );
-			break;
-		case SHT4X_HIGH_HEATER_100MS:
-			Serial.println( "High heat for 0.1 second" );
-			break;
-		case SHT4X_MED_HEATER_1S:
-			Serial.println( "Medium heat for 1 second" );
-			break;
-		case SHT4X_MED_HEATER_100MS:
-			Serial.println( "Medium heat for 0.1 second" );
-			break;
-		case SHT4X_LOW_HEATER_1S:
-			Serial.println( "Low heat for 1 second" );
-			break;
-		case SHT4X_LOW_HEATER_100MS:
-			Serial.println( "Low heat for 0.1 second" );
-			break;
-	}
-	if( !apds.begin())
-		Serial.println( "Failed to initialize device! Please check your wiring." );
-	else Serial.println( "Device initialized!" );
-
-	// Enable color sensing mode
-	apds.enableColor( true );
+	wifiConnect();
+	configureOTA();
 
 	Serial.println( "Setup has completed." );
 } // End of setup() function.
 
+/**
+ * @brief setupSht40() will initialize the SHT30 temperature and humidity sensor.
+ */
+void setupSht40()
+{
+	Serial.println( "Configuring the SHT40" );
+	if( !sht40.begin() )
+	{
+		Serial.println( "Couldn't find the SHT40 on the I2C bus!" );
+		Serial.println( "Check the wiring and try again." );
+		Serial.println( "\n----------------------------------------" );
+		Serial.println( "This program is now in an infinite loop." );
+		Serial.println( "----------------------------------------\n" );
+		while( 1 )
+			delay( 1 );
+	}
+	Serial.println( "  Found the SHT40" );
+	Serial.print( "  Serial number 0x" );
+	Serial.println( sht40.readSerial(), HEX );
+
+	// You can have 3 different precisions, higher precision takes longer.
+	sht40.setPrecision( SHT4X_HIGH_PRECISION );
+	switch( sht40.getPrecision() )
+	{
+		case SHT4X_HIGH_PRECISION:
+			Serial.println( "  SHT40 high precision" );
+			break;
+		case SHT4X_MED_PRECISION:
+			Serial.println( "  SHT40 medium precision" );
+			break;
+		case SHT4X_LOW_PRECISION:
+			Serial.println( "  SHT40 low precision" );
+			break;
+	}
+
+	// You can have 6 different heater settings.
+	// Higher heat and longer times uses more power and reads will take longer too!
+	sht40.setHeater( SHT4X_NO_HEATER );
+	switch( sht40.getHeater() )
+	{
+		case SHT4X_NO_HEATER:
+			Serial.println( "  No heater" );
+			break;
+		case SHT4X_HIGH_HEATER_1S:
+			Serial.println( "  High heat for 1 second" );
+			break;
+		case SHT4X_HIGH_HEATER_100MS:
+			Serial.println( "  High heat for 0.1 second" );
+			break;
+		case SHT4X_MED_HEATER_1S:
+			Serial.println( "  Medium heat for 1 second" );
+			break;
+		case SHT4X_MED_HEATER_100MS:
+			Serial.println( "  Medium heat for 0.1 second" );
+			break;
+		case SHT4X_LOW_HEATER_1S:
+			Serial.println( "  Low heat for 1 second" );
+			break;
+		case SHT4X_LOW_HEATER_100MS:
+			Serial.println( "  Low heat for 0.1 second" );
+			break;
+	}
+} // End of the setupSht40() function.
 
 /**
  * @brief readTelemetry() will manipulate the settingArray[] like a FIFO queue, by popping the head value off, and adding a new value to the tail.
@@ -101,7 +121,7 @@ void readTelemetry()
 {
 	sensors_event_t humidity;
 	sensors_event_t temp;
-	sht40.getEvent( &humidity, &temp );// populate temp and humidity objects with fresh data
+	sht40.getEvent( &humidity, &temp ); // populate temp and humidity objects with fresh data
 
 	tempArray[0] = tempArray[1];
 	tempArray[1] = tempArray[2];
@@ -111,7 +131,6 @@ void readTelemetry()
 	humidityArray[1] = humidityArray[2];
 	humidityArray[2] = humidity.relative_humidity;
 } // End of readTelemetry() function.
-
 
 void printTelemetry()
 {
@@ -126,14 +145,13 @@ void printTelemetry()
 	Serial.printf( "Average: %.3f %% rH\n", humidity );
 } // End of printTelemetry() function.
 
-
 void readColors()
 {
 	// Variables to store the color data.
 	uint16_t r, g, b, c;
 
 	// Wait for color data to be ready.
-	while( !apds.colorDataReady())
+	while( !apds.colorDataReady() )
 		delay( 5 );
 
 	// Get color data and print the different channels.
@@ -152,7 +170,6 @@ void readColors()
 	Serial.println();
 } // End of readColors() function.
 
-
 /**
  * @brief toggleLED() will change the state of the LED.
  * This function does not manage any timings.
@@ -165,23 +182,48 @@ void toggleLED()
 		digitalWrite( BACKLIGHT, 0 );
 } // End of toggleLED() function.
 
-
 void loop()
 {
-	unsigned long time = millis();
+	if( !mqttClient.connected() )
+	{
+		mqttConnect();
+	}
+	else
+	{
+		mqttClient.loop();
+	}
+
+	unsigned long currentTime = millis();
 	// Poll the first time.  Avoid subtraction overflow.  Poll every interval.
-	if( lastTelemetryReadTime == 0 || (( time > telemetryPollInterval ) && ( time - telemetryPollInterval ) > lastTelemetryReadTime ))
+	if( lastTelemetryReadTime == 0 || ( ( currentTime > telemetryPollInterval ) && ( currentTime - telemetryPollInterval ) > lastTelemetryReadTime ) )
 	{
 		readTelemetry();
-		lastTelemetryReadTime = millis();
-
 		readColors();
-		toggleLED();
+		lastTelemetryReadTime = millis();
 	}
-	time = millis();
-	if( lastTelemetryPrintTime == 0 || (( time > telemetryPrintInterval ) && ( time - telemetryPrintInterval ) > lastTelemetryPrintTime ))
+
+	currentTime = millis();
+	if( lastTelemetryPrintTime == 0 || ( ( currentTime > telemetryPrintInterval ) && ( currentTime - telemetryPrintInterval ) > lastTelemetryPrintTime ) )
 	{
 		printTelemetry();
 		lastTelemetryPrintTime = millis();
+	}
+
+	currentTime = millis();
+	// Process the first time.  Avoid subtraction overflow.  Process every interval.
+	if( lastLedBlinkTime == 0 || ( ( currentTime > ledBlinkInterval ) && ( currentTime - ledBlinkInterval ) > lastLedBlinkTime ) )
+	{
+		lastLedBlinkTime = millis();
+
+		// If Wi-Fi is connected, but MQTT is not, blink the LED.
+		if( WiFi.status() == WL_CONNECTED )
+		{
+			if( mqttClient.state() != 0 )
+				toggleLED(); // Blink the backlight to show that Wi-Fi is connected, but MQTT is not.
+			else
+				digitalWrite( BACKLIGHT, 1 ); // Turn the backlight on to show both Wi-Fi and MQTT are connected.
+		}
+		else
+			digitalWrite( BACKLIGHT, 0 ); // Turn the backlight off to show that Wi-Fi is not connected.
 	}
 } // End of loop() function.
