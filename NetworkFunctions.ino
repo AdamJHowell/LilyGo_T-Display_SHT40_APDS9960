@@ -149,8 +149,8 @@ int checkForSSID( const char *ssidName )
  */
 void wifiConnect()
 {
-	long time = millis();
-	if( lastWifiConnectTime == 0 || ( time > wifiCoolDownInterval && ( time - wifiCoolDownInterval ) > lastWifiConnectTime ) )
+	long currentTime = millis();
+	if( lastWifiConnectTime == 0 || ( currentTime > wifiCoolDownInterval && ( currentTime - wifiCoolDownInterval ) > lastWifiConnectTime ) )
 	{
 		int ssidCount = checkForSSID( wifiSsid );
 		if( ssidCount == 0 )
@@ -202,10 +202,10 @@ void wifiConnect()
  */
 void mqttConnect()
 {
-	long time = millis();
+	long currentTime = millis();
 	// This block prevents MQTT from connecting more than every mqttCoolDownInterval milliseconds.
-	// Connect the first time.  Avoid subtraction overflow.  Connect after cool down.
-	if( lastMqttConnectionTime == 0 || ( time > mqttCoolDownInterval && ( time - mqttCoolDownInterval ) > lastMqttConnectionTime ) )
+	// Connect the first currentTime.  Avoid subtraction overflow.  Connect after cool down.
+	if( lastMqttConnectionTime == 0 || ( currentTime > mqttCoolDownInterval && ( currentTime - mqttCoolDownInterval ) > lastMqttConnectionTime ) )
 	{
 		mqttConnectCount++;
 		digitalWrite( BACKLIGHT, 0 );
@@ -213,11 +213,23 @@ void mqttConnect()
 		mqttClient.setServer( mqttBroker, mqttPort );
 		mqttClient.setCallback( mqttCallback );
 
+		// Connect to the MQTT broker.
+		mqttClient.connect( macAddress );
+
+		long startTime = millis();
+		// Wait up to 5 seconds for the connection to complete.
+		while( ( ( currentTime - mqttConnectionTimeout ) > startTime ) && !mqttClient.connected() )
+		{
+			delay( 50 );
+			currentTime = millis();
+		}
 		// Connect to the broker, using the MAC address for a MQTT client ID.
-		if( mqttClient.connect( macAddress ) )
+		if( mqttClient.connected() )
 		{
 			Serial.println( "Connected to MQTT Broker." );
 			mqttClient.subscribe( MQTT_COMMAND_TOPIC );
+			if( !mqttClient.publish( MQTT_STATS_TOPIC, "Connected!" ) )
+				Serial.println( "\n\nTest publish failed!!!\n\n" );
 			digitalWrite( BACKLIGHT, 1 );
 		}
 		else
@@ -227,8 +239,9 @@ void mqttConnect()
 			lookupMQTTCode( mqttStateCode, buffer );
 			Serial.printf( "MQTT state: %s\n", buffer );
 			Serial.printf( "MQTT state code: %d\n", mqttStateCode );
+			Serial.printf( "Next MQTT connection will be in %lu seconds.\n\n", mqttCoolDownInterval / 1000 );
 
-			// This block increments the broker connection "cooldown" time by 10 seconds after every failed connection, and resets it once it is over 2 minutes.
+			// This block increments the broker connection "cooldown" currentTime by 10 seconds after every failed connection, and resets it once it is over 2 minutes.
 			if( mqttCoolDownInterval > 120000 )
 				mqttCoolDownInterval = 0;
 			mqttCoolDownInterval += 10000;
@@ -245,13 +258,10 @@ void publishTelemetry()
 {
 	float averageTempC = averageArray( sht40TempCArray );
 	float tempF = cToF( averageTempC );
-
 	float averageHumidity = averageArray( sht40HumidityArray );
 	char mqttStatsString[JSON_DOC_SIZE];
 	// Create a JSON Document on the stack.
 	StaticJsonDocument<JSON_DOC_SIZE> statsJsonDoc;
-	// Add data: SKETCH_NAME, macAddress, ipAddress, rssi, publishCount
-	statsJsonDoc["sketch"] = __FILE__;
 	statsJsonDoc["mac"] = macAddress;
 	statsJsonDoc["ip"] = ipAddress;
 	statsJsonDoc["rssi"] = rssi;
@@ -280,63 +290,100 @@ void publishTelemetry()
 	}
 
 	publishCount++;
-	char topicBuffer[256] = "";
 	char valueBuffer[25] = "";
 
-	snprintf( valueBuffer, 25, "%f", averageArray( sht40TempCArray ) );
-	if( mqttClient.publish( topicBuffer, valueBuffer ) )
-		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, TEMP_C_TOPIC );
+	snprintf( valueBuffer, 25, "%u", voltage );
+	if( mqttClient.publish( VOLTAGE_TOPIC, valueBuffer ) )
+		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, VOLTAGE_TOPIC );
 	else
-		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, TEMP_C_TOPIC );
-
-	snprintf( valueBuffer, 25, "%f", cToF( averageArray( sht40TempCArray ) ) );
-	if( mqttClient.publish( topicBuffer, valueBuffer ) )
-		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, TEMP_F_TOPIC );
-	else
-		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, TEMP_F_TOPIC );
-
-	snprintf( valueBuffer, 25, "%f", averageArray( sht40HumidityArray ) );
-	if( mqttClient.publish( topicBuffer, valueBuffer ) )
-		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, HUMIDITY_TOPIC );
-	else
-		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, HUMIDITY_TOPIC );
-
-	snprintf( valueBuffer, 25, "%ld", rssi );
-	if( mqttClient.publish( topicBuffer, valueBuffer ) )
-		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, RSSI_TOPIC );
-	else
-		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, RSSI_TOPIC );
+		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, VOLTAGE_TOPIC );
 
 	snprintf( valueBuffer, 25, "%s", macAddress );
-	if( mqttClient.publish( topicBuffer, valueBuffer ) )
+	if( mqttClient.publish( MAC_TOPIC, valueBuffer ) )
 		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, MAC_TOPIC );
 	else
 		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, MAC_TOPIC );
 
 	snprintf( valueBuffer, 25, "%s", ipAddress );
-	if( mqttClient.publish( topicBuffer, valueBuffer ) )
+	if( mqttClient.publish( IP_TOPIC, valueBuffer ) )
 		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, IP_TOPIC );
 	else
 		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, IP_TOPIC );
 
-	//	snprintf( valueBuffer, 25, "%u", wifiConnectCount );
-	//	Serial.printf( "Published '%s' to '%s'\n", valueBuffer, wifiCountTopic );
-	//	mqttClient.publish( topicBuffer, valueBuffer );
-	//
-	//	snprintf( valueBuffer, 25, "%lu", wifiCoolDown );
-	//	Serial.printf( "Published '%s' to '%s'\n", valueBuffer, wifiCoolDownTopic );
-	//	mqttClient.publish( topicBuffer, valueBuffer );
-	//
-	//	snprintf( valueBuffer, 25, "%u", mqttConnectCount );
-	//	Serial.printf( "Published '%s' to '%s'\n", valueBuffer, mqttCountTopic );
-	//	mqttClient.publish( topicBuffer, valueBuffer );
-	//
-	//	snprintf( valueBuffer, 25, "%lu", mqttCoolDown );
-	//	Serial.printf( "Published '%s' to '%s'\n", valueBuffer, mqttCoolDownTopic );
-	//	mqttClient.publish( topicBuffer, valueBuffer );
+	snprintf( valueBuffer, 25, "%lu", wifiConnectCount );
+	if( mqttClient.publish( WIFI_COUNT_TOPIC, valueBuffer ) )
+		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, WIFI_COUNT_TOPIC );
+	else
+		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, WIFI_COUNT_TOPIC );
+
+	snprintf( valueBuffer, 25, "%lu", wifiCoolDownInterval );
+	if( mqttClient.publish( WIFI_COOLDOWN_TOPIC, valueBuffer ) )
+		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, WIFI_COOLDOWN_TOPIC );
+	else
+		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, WIFI_COOLDOWN_TOPIC );
+
+	snprintf( valueBuffer, 25, "%lu", mqttConnectCount );
+	if( mqttClient.publish( MQTT_COUNT_TOPIC, valueBuffer ) )
+		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, MQTT_COUNT_TOPIC );
+	else
+		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, MQTT_COUNT_TOPIC );
+
+	snprintf( valueBuffer, 25, "%lu", mqttCoolDownInterval );
+	if( mqttClient.publish( MQTT_COOLDOWN_TOPIC, valueBuffer ) )
+		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, MQTT_COOLDOWN_TOPIC );
+	else
+		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, MQTT_COOLDOWN_TOPIC );
+
+	snprintf( valueBuffer, 25, "%ld", rssi );
+	if( mqttClient.publish( RSSI_TOPIC, valueBuffer ) )
+		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, RSSI_TOPIC );
+	else
+		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, RSSI_TOPIC );
+
+	snprintf( valueBuffer, 25, "%f", averageArray( sht40TempCArray ) );
+	if( mqttClient.publish( TEMP_C_TOPIC, valueBuffer ) )
+		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, TEMP_C_TOPIC );
+	else
+		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, TEMP_C_TOPIC );
+
+	snprintf( valueBuffer, 25, "%f", cToF( averageArray( sht40TempCArray ) ) );
+	if( mqttClient.publish( TEMP_F_TOPIC, valueBuffer ) )
+		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, TEMP_F_TOPIC );
+	else
+		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, TEMP_F_TOPIC );
+
+	snprintf( valueBuffer, 25, "%f", averageArray( sht40HumidityArray ) );
+	if( mqttClient.publish( HUMIDITY_TOPIC, valueBuffer ) )
+		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, HUMIDITY_TOPIC );
+	else
+		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, HUMIDITY_TOPIC );
+
+	snprintf( valueBuffer, 25, "%u", redValue );
+	if( mqttClient.publish( LIGHT_RED_TOPIC, valueBuffer ) )
+		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, LIGHT_RED_TOPIC );
+	else
+		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, LIGHT_RED_TOPIC );
+
+	snprintf( valueBuffer, 25, "%u", greenValue );
+	if( mqttClient.publish( LIGHT_GREEN_TOPIC, valueBuffer ) )
+		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, LIGHT_GREEN_TOPIC );
+	else
+		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, LIGHT_GREEN_TOPIC );
+
+	snprintf( valueBuffer, 25, "%u", blueValue );
+	if( mqttClient.publish( LIGHT_BLUE_TOPIC, valueBuffer ) )
+		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, LIGHT_BLUE_TOPIC );
+	else
+		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, LIGHT_BLUE_TOPIC );
+
+	snprintf( valueBuffer, 25, "%u", clearValue );
+	if( mqttClient.publish( LIGHT_CLEAR_TOPIC, valueBuffer ) )
+		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, LIGHT_CLEAR_TOPIC );
+	else
+		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, LIGHT_CLEAR_TOPIC );
 
 	snprintf( valueBuffer, 25, "%lu", publishCount );
-	if( mqttClient.publish( topicBuffer, valueBuffer ) )
+	if( mqttClient.publish( PUBLISH_COUNT_TOPIC, valueBuffer ) )
 		Serial.printf( "Published '%s' to '%s'\n", valueBuffer, PUBLISH_COUNT_TOPIC );
 	else
 		Serial.printf( "Failed to publish '%s' to '%s'\n", valueBuffer, PUBLISH_COUNT_TOPIC );

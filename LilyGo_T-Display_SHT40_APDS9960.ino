@@ -189,21 +189,23 @@ void printTelemetry()
 	Serial.println();
 	printCount++;
 	Serial.printf( "Print count: %lu\n", printCount );
-	Serial.printf( "Voltage: %d\n", voltage );
+	Serial.printf( "Voltage: %d mV\n", voltage );
+	Serial.println();
+
 	Serial.println( "Network stats:" );
 	Serial.printf( "  MAC address: %s\n", macAddress );
 	int wifiStatusCode = WiFi.status();
 	char buffer[29];
 	lookupWifiCode( wifiStatusCode, buffer );
-	Serial.printf( "  wifiConnectCount: %lu\n", wifiConnectCount );
-	Serial.printf( "  wifiCoolDownInterval: %lu\n", wifiCoolDownInterval );
-	Serial.printf( "  Wi-Fi status text: %s\n", buffer );
-	Serial.printf( "  Wi-Fi status code: %d\n", wifiStatusCode );
 	if( wifiStatusCode == 3 )
 	{
 		Serial.printf( "  IP address: %s\n", ipAddress );
 		Serial.printf( "  RSSI: %ld\n", rssi );
 	}
+	Serial.printf( "  wifiConnectCount: %lu\n", wifiConnectCount );
+	Serial.printf( "  wifiCoolDownInterval: %lu\n", wifiCoolDownInterval );
+	Serial.printf( "  Wi-Fi status text: %s\n", buffer );
+	Serial.printf( "  Wi-Fi status code: %d\n", wifiStatusCode );
 	Serial.println();
 
 	Serial.println( "MQTT stats:" );
@@ -220,8 +222,9 @@ void printTelemetry()
 	Serial.printf( "  Current temp: %.3f C\n", sht40TempCArray[0] );
 	Serial.printf( "  Average: %.3f C\n", averageArray( sht40TempCArray ) );
 	Serial.printf( "  Average: %.3f F\n", cToF( averageArray( sht40TempCArray ) ) );
-	Serial.printf( "  Current humidity: %.3f %% rH\n", sht40HumidityArray[0] );
-	Serial.printf( "  Average: %.3f %% rH\n", averageArray( sht40HumidityArray ) );
+	Serial.printf( "  Current humidity: %.3f %%\n", sht40HumidityArray[0] );
+	Serial.printf( "  Average: %.3f %%\n", averageArray( sht40HumidityArray ) );
+	Serial.println();
 
 	Serial.println( "APDS9960 values:" );
 	Serial.print( "  Red: " );
