@@ -188,6 +188,7 @@ void printTelemetry()
 {
 	Serial.println();
 	printCount++;
+	Serial.println( __FILE__ );
 	Serial.printf( "Print count: %lu\n", printCount );
 	Serial.printf( "Voltage: %d mV\n", voltage );
 	Serial.println();
@@ -219,10 +220,10 @@ void printTelemetry()
 	Serial.println();
 
 	Serial.println( "Environmental stats:" );
-	Serial.printf( "  Current temp: %.3f C\n", sht40TempCArray[0] );
+	Serial.printf( "  SHT40 temp: %.3f C\n", sht40TempCArray[0] );
 	Serial.printf( "  Average: %.3f C\n", averageArray( sht40TempCArray ) );
 	Serial.printf( "  Average: %.3f F\n", cToF( averageArray( sht40TempCArray ) ) );
-	Serial.printf( "  Current humidity: %.3f %%\n", sht40HumidityArray[0] );
+	Serial.printf( "  SHT40 humidity: %.3f %%\n", sht40HumidityArray[0] );
 	Serial.printf( "  Average: %.3f %%\n", averageArray( sht40HumidityArray ) );
 	Serial.println();
 
@@ -253,13 +254,15 @@ void toggleLED()
 
 void loop()
 {
-	if( !mqttClient.connected() )
-	{
+	// Reconnect Wi-Fi if needed, reconnect MQTT if needed, and process MQTT and OTA requests.
+	if( WiFi.status() != WL_CONNECTED )
+		wifiConnect();
+	else if( !mqttClient.connected() )
 		mqttConnect();
-	}
 	else
 	{
 		mqttClient.loop();
+		ArduinoOTA.handle();
 	}
 
 	unsigned long currentTime = millis();
