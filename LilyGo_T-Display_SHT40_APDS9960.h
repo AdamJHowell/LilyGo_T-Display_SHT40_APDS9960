@@ -85,6 +85,7 @@ unsigned long lastMqttConnectionTime = 0;									  // The last time a MQTT conn
 unsigned long lastTelemetryPrintTime = 0;									  // The last time sensor data was printed.
 unsigned long lastTelemetryPublishTime = 0;								  // The last time sensor data was printed.
 unsigned long lastLedBlinkTime = 0;											  // The last time the LED state was changed (blink).
+unsigned long lastAdpsPrintTime = 0;											  // The last time the ADPS values were printed.
 unsigned long wifiCoolDownInterval = 10000;								  // How long to wait between Wi-Fi connection attempts.
 unsigned long mqttCoolDownInterval = 10000;								  // How long to wait between MQTT broker connection attempts.
 unsigned long telemetryPollInterval = 10000;								  // How long to wait between sensor polling.
