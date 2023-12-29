@@ -184,6 +184,21 @@ void readTelemetry()
 	voltage = ( analogRead( PIN_BAT_VOLT ) * 2 * 3.3 * 1000 ) / 4096;
 } // End of readTelemetry() function.
 
+
+void printADPS()
+{
+  	Serial.println( "APDS9960 values:" );
+	Serial.print( "  Red: " );
+	Serial.println( redValue );
+	Serial.print( "  Green: " );
+	Serial.println( greenValue );
+	Serial.print( "  Blue: " );
+	Serial.println( blueValue );
+	Serial.print( "  Clear: " );
+	Serial.println( clearValue );
+}
+
+
 void printTelemetry()
 {
 	Serial.println();
@@ -227,15 +242,7 @@ void printTelemetry()
 	Serial.printf( "  Average: %.3f %%\n", averageArray( sht40HumidityArray ) );
 	Serial.println();
 
-	Serial.println( "APDS9960 values:" );
-	Serial.print( "  Red: " );
-	Serial.println( redValue );
-	Serial.print( "  Green: " );
-	Serial.println( greenValue );
-	Serial.print( "  Blue: " );
-	Serial.println( blueValue );
-	Serial.print( "  Clear: " );
-	Serial.println( clearValue );
+  printADPS();
 
 	Serial.println();
 } // End of printTelemetry() function.
@@ -277,7 +284,8 @@ void loop()
 	if( lastTelemetryPrintTime == 0 || ( ( currentTime > telemetryPrintInterval ) && ( currentTime - telemetryPrintInterval ) > lastTelemetryPrintTime ) )
 	{
 		printTelemetry();
-		lastTelemetryPrintTime = millis();
+    lastAdpsPrintTime = currentTime;
+		lastTelemetryPrintTime = currentTime;
 	}
 
 	currentTime = millis();
@@ -303,5 +311,14 @@ void loop()
 		}
 		else
 			digitalWrite( BACKLIGHT, 0 ); // Turn the backlight off to show that Wi-Fi is not connected.
+	}
+
+	currentTime = millis();
+	// Process the first time.  Avoid subtraction overflow.  Process every interval.
+	if( ( currentTime - 2000 ) > lastAdpsPrintTime )
+	{
+    readTelemetry();
+    printADPS();
+    lastLedBlinkTime = currentTime;
 	}
 } // End of loop() function.
